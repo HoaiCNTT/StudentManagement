@@ -1,119 +1,84 @@
-using System.Collections.Concurrent;
+﻿using DBConnect.Data;
+using DBConnect.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
-namespace DBConnect.Controllers
-{
-    [ApiController]
+[Route("api/[controller]")]
+[ApiController]
     [Route("[controller]")]
-    public class ProductController : ControllerBase
+public class ProductController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    public ProductController(AppDbContext context)
     {
-        private readonly ILogger<ProductController> _logger;
-
-        // Simple in-memory thread-safe store for demo / local development.
-        private static readonly ConcurrentDictionary<int, Product> _store = new();
-        private static int _nextId = 0;
-
-        public ProductController(ILogger<ProductController> logger)
-        {
-            _logger = logger;
-        }
-
-        // GET /Product
-        [HttpGet]
-        public IEnumerable<Product> GetAll()
-        {
-            return _store.Values.OrderBy(p => p.Id);
-        }
-
-        // GET /Product/{id}
-        [HttpGet("{id:int}")]
-        public ActionResult<Product> Get(int id)
-        {
-            if (_store.TryGetValue(id, out var product))
-                return product;
-            return NotFound();
-        }
-
-        // POST /Product
-        [HttpPost]
-        public ActionResult<Product> Create([FromBody] ProductCreateDto dto)
-        {
-            if (dto is null || string.IsNullOrWhiteSpace(dto.Name))
-                return BadRequest("Product name is required.");
-
-            var id = System.Threading.Interlocked.Increment(ref _nextId);
-            var product = new Product
-            {
-                Id = id,
-                Name = dto.Name,
-                Description = dto.Description,
-                Price = dto.Price
-            };
-
-            _store[id] = product;
-            _logger.LogInformation("Created product {Id}", id);
-
-            return CreatedAtAction(nameof(Get), new { id = product.Id }, product);
-        }
-
-        // PUT /Product/{id}
-        [HttpPut("{id:int}")]
-        public IActionResult Update(int id, [FromBody] ProductUpdateDto dto)
-        {
-            if (dto is null || string.IsNullOrWhiteSpace(dto.Name))
-                return BadRequest("Product name is required.");
-
-            if (!_store.ContainsKey(id))
-                return NotFound();
-
-            var updated = new Product
-            {
-                Id = id,
-                Name = dto.Name,
-                Description = dto.Description,
-                Price = dto.Price
-            };
-
-            _store[id] = updated;
-            _logger.LogInformation("Updated product {Id}", id);
-
-            return NoContent();
-        }
-
-        // DELETE /Product/{id}
-        [HttpDelete("{id:int}")]
-        public IActionResult Delete(int id)
-        {
-            if (_store.TryRemove(id, out _))
-            {
-                _logger.LogInformation("Deleted product {Id}", id);
-                return NoContent();
-            }
-
-            return NotFound();
-        }
+        _context = context;
     }
 
-    // Simple DTOs and model used by the controller.
-    public class Product
+    // GET: api/Product
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
     {
-        public int Id { get; init; }
-        public string? Name { get; init; }
-        public string? Description { get; init; }
-        public decimal Price { get; init; }
+        var products = await _context.Products.ToListAsync();
+        return Ok(products);
     }
 
-    public class ProductCreateDto
+    // GET: api/Product/5
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(int id)
     {
-        public string? Name { get; set; }
-        public string? Description { get; set; }
-        public decimal Price { get; set; }
+        var product = await _context.Products.FindAsync(id);
+        if (product == null) return NotFound();
+        return Ok(product);
     }
 
-    public class ProductUpdateDto
+    // POST: api/Product
+    [HttpPost]
+    public async Task<IActionResult> Create(Product product)
     {
-        public string? Name { get; set; }
-        public string? Description { get; set; }
-        public decimal Price { get; set; }
+        _context.Products.Add(product);
+        await _context.SaveChangesAsync();
+        return CreatedAtAction(nameof(GetById), new { id = product.Id }, product);
+    }
+
+    // PUT: api/Product/5
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(int id, Product product)
+    {
+        if (id != product.Id) return BadRequest();
+
+        _context.Entry(product).State = EntityState.Modified;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE: api/Product/5
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var product = await _context.Products.FindAsync(id);
+        if (product == null) return NotFound();
+
+        _context.Products.Remove(product);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+    // DELETE: api/Product/bulk
+    [HttpDelete("bulk")]
+    public async Task<IActionResult> DeleteMultiple([FromBody] List<int> ids)
+    {
+        if (ids == null || !ids.Any())
+            return BadRequest("Danh sách id không hợp lệ.");
+
+        var products = await _context.Products
+                                     .Where(p => ids.Contains(p.Id))
+                                     .ToListAsync();
+
+        if (!products.Any())
+            return NotFound("Không tìm thấy sản phẩm nào.");
+
+        _context.Products.RemoveRange(products);
+        await _context.SaveChangesAsync();
+
+        return NoContent();
     }
 }
